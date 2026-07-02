@@ -6,7 +6,7 @@ use warnings;
 
 =head1 NAME
 
-Algorithm::Classifier::NaiveBayes - The great new Algorithm::Classifier::NaiveBayes!
+Algorithm::Classifier::NaiveBayes - 
 
 =head1 VERSION
 
@@ -27,14 +27,11 @@ Perhaps a little code snippet.
     my $foo = Algorithm::Classifier::NaiveBayes->new();
     ...
 
-=head1 EXPORT
-
-A list of functions that can be exported.  You can delete this section
-if you don't export anything, such as for a purely object-oriented module.
-
 =head1 METHODS
 
 =head2 new
+
+Initiates the object.
 
 =cut
 
@@ -55,6 +52,14 @@ sub new {
 
 	return $self;
 } ## end sub new
+
+=head2 tokenize
+
+Tokenizes the the specified string.
+
+    my @tokens = $nb->tokenize($string);
+
+=cut
 
 sub tokenize {
 	my ( $self, $text ) = @_;
@@ -79,6 +84,14 @@ sub tokenize {
 	return @final_tokens;
 } ## end sub tokenize
 
+=head2 train
+
+Train a specific class on the specified string.
+
+    $nb->train($class, $string);
+
+=cut
+
 sub train {
 	my ( $self, $class, $text ) = @_;
 	$self->{'model'}{'class_counts'}{$class}++;
@@ -95,6 +108,14 @@ sub train {
 		$self->{'model'}{'tokens'}{$word} = 1;
 	}
 } ## end sub train
+
+=head2 classify
+
+Classify the text in question.
+
+    my $class = $nb->classify($text);
+
+=cut
 
 sub classify {
 	my ( $self, $text ) = @_;
