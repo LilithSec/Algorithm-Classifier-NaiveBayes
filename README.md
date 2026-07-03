@@ -1,23 +1,31 @@
 # Algorithm-Classifier-NaiveBayes
 
-A multinomial naive Bayes text classifier for Perl with Laplace smoothing.
-
-Strings are broken into tokens and each class is scored using the log of
-its prior probability, based on how often the class was trained, plus the
-sum of the log probabilities of each token appearing in that class. Token
-probabilities use add-one, Laplace, smoothing so tokens never seen for a
-class do not zero out the whole score.
+A multinomial naive Bayes text classifier for Perl.
 
 Features...
 
-- Classes are not predefined. Training a new class name brings it into
-  existence and untraining everything for it removes it.
+- ngrams :: Why limit yourself to a single token when you can also optionally learn near
+  by tokens as well!
+
+- Classes are not predefined. Training a new class name creates it and if untraining
+  completely removes everything the class is removed as well.
+
 - Configurable tokenization. Token splitting regex, lowercasing, and an
   optional stop word regex.
+
 - Models can be untrained as well as trained, so mistakes can be corrected
   without retraining from scratch.
+
 - Models can be saved to and loaded from JSON, either as a string or a
   file. File writes are atomic.
+  
+- smoothing :: Choose between Laplace(+1) or Lidstone(+alpha).
+
+- token_weighting :: A choice between the traditional count and binary where it is only
+  coulded once per doc for training/classifying.
+  
+- priors :: A choice between the traditional trained and uniform, which gives every class
+  a equal prior(useful for when training is unbalanced.
 
 ## Usage
 
