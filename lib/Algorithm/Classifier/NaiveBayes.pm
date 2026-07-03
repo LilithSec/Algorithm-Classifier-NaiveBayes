@@ -3,10 +3,12 @@ package Algorithm::Classifier::NaiveBayes;
 use 5.006;
 use strict;
 use warnings;
+use JSON::PP    ();
+use File::Slurp qw(read_file write_file);
 
 =head1 NAME
 
-Algorithm::Classifier::NaiveBayes - 
+Algorithm::Classifier::NaiveBayes - A multinomial naive Bayes text classifier with Laplace smoothing.
 
 =head1 VERSION
 
@@ -16,16 +18,48 @@ Version 0.0.1
 
 our $VERSION = '0.0.1';
 
+# version of the saved model format
+our $MODEL_VERSION = 1;
+
 =head1 SYNOPSIS
-
-Quick summary of what the module does.
-
-Perhaps a little code snippet.
 
     use Algorithm::Classifier::NaiveBayes;
 
-    my $foo = Algorithm::Classifier::NaiveBayes->new();
-    ...
+    my $nb = Algorithm::Classifier::NaiveBayes->new;
+
+    # train it with examples of each class
+    $nb->train( 'spam', 'buy cheap pills now' );
+    $nb->train( 'spam', 'cheap watches for sale' );
+    $nb->train( 'ham',  'meeting at noon tomorrow' );
+    $nb->train( 'ham',  'lunch with the team' );
+
+    # classify some new text
+    my $class = $nb->classify('cheap pills for sale');
+    # $class is now 'spam'
+
+    # or get the score for every class as well
+    my ( $best, $scores ) = $nb->classify('cheap pills for sale');
+
+    # save the model for later and load it again
+    $nb->save('model.json');
+
+    my $loaded = Algorithm::Classifier::NaiveBayes->new;
+    $loaded->load('model.json');
+
+=head1 DESCRIPTION
+
+This module implements a multinomial naive Bayes classifier. Strings
+are broken into tokens and each class is scored using the log of its
+prior probability, based on how often the class was trained, plus the
+sum of the log probabilities of each token appearing in that class.
+Token probabilities use add-one, Laplace, smoothing so tokens never
+seen for a class do not zero out the whole score.
+
+Classes are not predefined. A class exists once something has been
+trained for it and stops existing if everything for it is untrained.
+
+The model may be saved to a JSON file or string and loaded back later,
+allowing training and classification to happen in different processes.
 
 =head1 METHODS
 
@@ -33,54 +67,137 @@ Perhaps a little code snippet.
 
 Initiates the object.
 
+    my $nb = Algorithm::Classifier::NaiveBayes->new(%args);
+
+The following args are supported.
+
+    lc_tokens - Lowercase tokens when tokenizing.
+        Default: 1
+
+    token_splitter - Regex to use for splitting a string into tokens.
+        Default: \s+
+
+    stop_regex - If defined, tokens matching this regex are dropped.
+        Matched anchored, so it must match the entire token.
+        Default: undef
+
+token_splitter and stop_regex may be either a string or a qr// Regexp.
+
+Will die if passed a unknown arg or if token_splitter or stop_regex
+is a empty string, a ref other than a qr// Regexp, or does not compile
+as a regex.
+
+Some examples...
+
+    # split on commas instead of whitespace
+    my $nb = Algorithm::Classifier::NaiveBayes->new( 'token_splitter' => ',' );
+
+    # keep the case of tokens
+    my $nb = Algorithm::Classifier::NaiveBayes->new( 'lc_tokens' => 0 );
+
+    # drop some common stop words
+    my $nb = Algorithm::Classifier::NaiveBayes->new( 'stop_regex' => qr/a|an|and|the|of|to/ );
+
 =cut
 
 sub new {
+	my ( $pkg, %args ) = @_;
+
+	my %known_args = ( 'lc_tokens' => 1, 'token_splitter' => 1, 'stop_regex' => 1 );
+	foreach my $arg ( keys %args ) {
+		if ( !defined( $known_args{$arg} ) ) {
+			die( '"' . $arg . '" is not a known arg' );
+		}
+	}
+
+	if ( defined( $args{'lc_tokens'} ) && ref( $args{'lc_tokens'} ) ne '' ) {
+		die( 'lc_tokens must be a boolean and not a ref of type "' . ref( $args{'lc_tokens'} ) . '"' );
+	}
+
+	foreach my $regex_arg ( 'token_splitter', 'stop_regex' ) {
+		if ( defined( $args{$regex_arg} ) ) {
+			my $ref = ref( $args{$regex_arg} );
+			if ( $ref ne '' && $ref ne 'Regexp' ) {
+				die( $regex_arg . ' must be a string or qr// Regexp and not a ref of type "' . $ref . '"' );
+			}
+			if ( $args{$regex_arg} eq '' ) {
+				die( $regex_arg . ' may not be a empty string' );
+			}
+			my $compiled = eval { qr/$args{$regex_arg}/ };
+			if ( !defined($compiled) ) {
+				die( $regex_arg . ', "' . $args{$regex_arg} . '", does not compile as a regex... ' . $@ );
+			}
+		} ## end if ( defined( $args{$regex_arg} ) )
+	} ## end foreach my $regex_arg ( 'token_splitter', 'stop_regex')
+
 	my $self = {
 		'model' => {
+			'format'         => __PACKAGE__,
+			'version'        => $MODEL_VERSION,
 			'class_counts'   => {},
 			'token_counts'   => {},
 			'class_totals'   => {},
-			'token'          => {},
+			'tokens'         => {},
 			'total_docs'     => 0,
-			'lc_tokens'      => 1,
-			'token_splitter' => '\s',
-			'stop_regex'     => undef,
+			'lc_tokens'      => defined( $args{'lc_tokens'} )      ? $args{'lc_tokens'}      : 1,
+			'token_splitter' => defined( $args{'token_splitter'} ) ? $args{'token_splitter'} : '\s+',
+			'stop_regex'     => $args{'stop_regex'},
 		},
 	};
-	bless $self;
+	bless $self, $pkg;
 
 	return $self;
 } ## end sub new
 
 =head2 tokenize
 
-Tokenizes the the specified string.
+Tokenizes the specified string. This is used internally by train,
+untrain, and classify, but may also be called directly to see how a
+string will be broken up.
 
     my @tokens = $nb->tokenize($string);
+
+The string is split via the token_splitter regex. Empty tokens are
+dropped. If lc_tokens is true, tokens are lowercased. If stop_regex is
+defined, tokens entirely matching it are dropped.
+
+Will die if the string is undef. As train, untrain, and classify all
+use this, passing undef text to any of those will also die.
+
+    my $nb = Algorithm::Classifier::NaiveBayes->new;
+    my @tokens = $nb->tokenize('Buy Cheap  Pills');
+    # ( 'buy', 'cheap', 'pills' )
 
 =cut
 
 sub tokenize {
 	my ( $self, $text ) = @_;
+
+	if ( !defined($text) ) {
+		die('No text specified');
+	}
+
 	my $split_regex = $self->{'model'}{'token_splitter'};
 	my @tokens      = split( /$split_regex/, $text );
 	my @final_tokens;
 	foreach my $token (@tokens) {
+		if ( $token eq '' ) {
+			next;
+		}
 		if ( $self->{'model'}{'lc_tokens'} ) {
 			$token = lc($token);
 		}
-		my $add_token=1;
-		if (defined($self->{'model'}{'stop_regex'})){
-			my $stop_regex=$self->{'model'}{'stop_regex'};
-			if ($token =~ /$stop_regex/){
-				$add_token=0;
+		my $add_token = 1;
+		if ( defined( $self->{'model'}{'stop_regex'} ) ) {
+			my $stop_regex = $self->{'model'}{'stop_regex'};
+			if ( $token =~ /\A(?:$stop_regex)\z/ ) {
+				$add_token = 0;
 			}
 		}
-		if ($add_token){
+		if ($add_token) {
 			push( @final_tokens, $token );
 		}
-	}
+	} ## end foreach my $token (@tokens)
 	return @final_tokens;
 } ## end sub tokenize
 
@@ -90,10 +207,25 @@ Train a specific class on the specified string.
 
     $nb->train($class, $string);
 
+Will die if the class or string is undef.
+
+The class does not need to exist prior to this being called. Training
+a new class name brings that class into existence.
+
+    $nb->train( 'spam', 'buy cheap pills now' );
+    $nb->train( 'ham',  'meeting at noon tomorrow' );
+
 =cut
 
 sub train {
 	my ( $self, $class, $text ) = @_;
+
+	if ( !defined($class) ) {
+		die('No class specified');
+	} elsif ( !defined($text) ) {
+		die('No text specified');
+	}
+
 	$self->{'model'}{'class_counts'}{$class}++;
 	$self->{'model'}{'total_docs'}++;
 	if ( !defined( $self->{'model'}{'token_counts'}{$class} ) ) {
@@ -109,16 +241,149 @@ sub train {
 	}
 } ## end sub train
 
+=head2 untrain
+
+Untrain a specific class on the specified string, reversing a previous
+call to train with the same class and string.
+
+    $nb->untrain($class, $string);
+
+Will die if the class or string is undef.
+
+If the class in question has not been trained, this is a noop. Token
+counts will not be decremented below zero and classes with no remaining
+trained documents are removed from the model.
+
+    # trained into the wrong class, so move it
+    $nb->untrain( 'ham',  'buy cheap pills now' );
+    $nb->train(   'spam', 'buy cheap pills now' );
+
+It is worth noting it can't be verified the string in question was
+actually previously trained for that class. Untraining a string that
+differs from what was trained will still decrement the document count
+for the class, along with whatever tokens overlap.
+
+=cut
+
+sub untrain {
+	my ( $self, $class, $text ) = @_;
+
+	if ( !defined($class) ) {
+		die('No class specified');
+	} elsif ( !defined($text) ) {
+		die('No text specified');
+	}
+
+	if ( !defined( $self->{'model'}{'class_counts'}{$class} )
+		|| $self->{'model'}{'class_counts'}{$class} < 1 )
+	{
+		return;
+	}
+
+	$self->{'model'}{'class_counts'}{$class}--;
+	$self->{'model'}{'total_docs'}--;
+
+	for my $word ( $self->tokenize($text) ) {
+		if ( defined( $self->{'model'}{'token_counts'}{$class}{$word} ) ) {
+			$self->{'model'}{'token_counts'}{$class}{$word}--;
+			$self->{'model'}{'class_totals'}{$class}--;
+			if ( $self->{'model'}{'token_counts'}{$class}{$word} < 1 ) {
+				delete( $self->{'model'}{'token_counts'}{$class}{$word} );
+			}
+		}
+	}
+
+	if ( $self->{'model'}{'class_counts'}{$class} < 1 ) {
+		delete( $self->{'model'}{'class_counts'}{$class} );
+		delete( $self->{'model'}{'token_counts'}{$class} );
+		delete( $self->{'model'}{'class_totals'}{$class} );
+	}
+
+	# rebuild the vocabulary as some tokens may no longer be in any class
+	$self->{'model'}{'tokens'} = {};
+	foreach my $rebuild_class ( keys %{ $self->{'model'}{'token_counts'} } ) {
+		foreach my $word ( keys %{ $self->{'model'}{'token_counts'}{$rebuild_class} } ) {
+			$self->{'model'}{'tokens'}{$word} = 1;
+		}
+	}
+} ## end sub untrain
+
+=head2 classes
+
+Returns a sorted list of all currently trained classes.
+
+    my @classes = $nb->classes;
+
+If nothing has been trained yet, an empty list is returned.
+
+=cut
+
+sub classes {
+	my ($self) = @_;
+
+	return sort( keys( %{ $self->{'model'}{'class_counts'} } ) );
+}
+
+=head2 class_tokens
+
+Returns a sorted list of all tokens trained for the specified class.
+
+    my @tokens = $nb->class_tokens($class);
+
+Will die if no class is specified or if the class in question does not
+exist.
+
+    foreach my $class ( $nb->classes ) {
+        print $class . ': ' . join( ', ', $nb->class_tokens($class) ) . "\n";
+    }
+
+=cut
+
+sub class_tokens {
+	my ( $self, $class ) = @_;
+
+	if ( !defined($class) ) {
+		die('No class specified');
+	} elsif ( !defined( $self->{'model'}{'token_counts'}{$class} ) ) {
+		die( 'The class "' . $class . '" does not exist' );
+	}
+
+	return sort( keys( %{ $self->{'model'}{'token_counts'}{$class} } ) );
+} ## end sub class_tokens
+
 =head2 classify
 
 Classify the text in question.
 
     my $class = $nb->classify($text);
 
+In scalar context, returns the name of the class the text most likely
+belongs to. In list context, also returns a hash ref of the score for
+every class.
+
+    my ( $class, $scores ) = $nb->classify($text);
+    foreach my $possible ( sort { $scores->{$b} <=> $scores->{$a} } keys %{$scores} ) {
+        print $possible . ': ' . $scores->{$possible} . "\n";
+    }
+
+The scores are log probabilities, so they are negative numbers with
+the one closest to zero being the most likely.
+
+If nothing has been trained yet, undef is returned in scalar context
+and ( undef, {} ) in list context.
+
+Ties are broken by sorting the tied class names, making the result
+deterministic.
+
 =cut
 
 sub classify {
 	my ( $self, $text ) = @_;
+
+	if ( $self->{'model'}{'total_docs'} < 1 ) {
+		return wantarray ? ( undef, {} ) : undef;
+	}
+
 	my @tokens     = $self->tokenize($text);
 	my $token_size = scalar keys %{ $self->{'model'}{'tokens'} };
 
@@ -127,16 +392,244 @@ sub classify {
 		my $log_prob = log( $self->{'model'}{'class_counts'}{$class} / $self->{'model'}{'total_docs'} );
 		my $total    = $self->{'model'}{'class_totals'}{$class} || 0;
 
-		for my $token (@tokens) {
-			my $count = $self->{'model'}{'token_counts'}{$class}{$token} || 0;
-			$log_prob += log( ( $count + 1 ) / ( $total + $token_size ) );
+		if ( ( $total + $token_size ) > 0 ) {
+			for my $token (@tokens) {
+				my $count = $self->{'model'}{'token_counts'}{$class}{$token} || 0;
+				$log_prob += log( ( $count + 1 ) / ( $total + $token_size ) );
+			}
 		}
 		$scores{$class} = $log_prob;
 	} ## end for my $class ( keys %{ $self->{'model'}{'class_counts'...}})
 
-	my ($best) = sort { $scores{$b} <=> $scores{$a} } keys %scores;
+	my ($best) = sort { $scores{$b} <=> $scores{$a} || $a cmp $b } keys %scores;
 	return wantarray ? ( $best, \%scores ) : $best;
 } ## end sub classify
+
+=head2 to_string
+
+Returns the model as a JSON string. See the section MODEL FORMAT for
+what the JSON looks like.
+
+    my $json = $nb->to_string;
+
+The JSON is generated with canonical set, so the keys are sorted,
+meaning two calls against the same model will always produce identical
+output, making it diffable.
+
+If token_splitter or stop_regex was set to a qr// Regexp, it is
+stringified, so the result is always JSON safe.
+
+=cut
+
+sub to_string {
+	my ($self) = @_;
+
+	# qr// Regexps can't be JSON encoded, so stringify them
+	my %model = %{ $self->{'model'} };
+	foreach my $regex_item ( 'token_splitter', 'stop_regex' ) {
+		if ( ref( $model{$regex_item} ) eq 'Regexp' ) {
+			$model{$regex_item} = '' . $model{$regex_item};
+		}
+	}
+
+	return JSON::PP->new->encode( \%model );
+} ## end sub to_string
+
+=head2 from_string
+
+Loads the model from the specified JSON string, replacing the current
+model, including any settings passed to new for the object it is
+being called on.
+
+    $nb->from_string($json);
+
+Will die on failure to parse the string as JSON, if "format" in the
+JSON is not the name of this module, if "version" is newer than the
+supported model format version, or if the parsed JSON does not look
+like a saved model.
+
+If it dies, the current model is left unchanged.
+
+=cut
+
+sub from_string {
+	my ( $self, $raw ) = @_;
+
+	if ( !defined($raw) ) {
+		die('No string specified');
+	}
+
+	my $model = eval { JSON::PP->new->decode($raw) };
+	if ( !defined($model) ) {
+		die( 'Failed to parse the string as JSON... ' . $@ );
+	}
+
+	if ( ref($model) ne 'HASH' ) {
+		die('The string did not parse to a hash');
+	}
+	if ( !defined( $model->{'format'} ) || $model->{'format'} ne __PACKAGE__ ) {
+		die( '"format" is not "' . __PACKAGE__ . '"' );
+	}
+	if ( !defined( $model->{'version'} ) || $model->{'version'} !~ /^\d+$/ ) {
+		die('"version" is not a int');
+	}
+	if ( $model->{'version'} > $MODEL_VERSION ) {
+		die(      '"version" is '
+				. $model->{'version'}
+				. ', which is newer than the highest supported model version of '
+				. $MODEL_VERSION );
+	}
+	foreach my $hash_item ( 'class_counts', 'token_counts', 'class_totals', 'tokens' ) {
+		if ( ref( $model->{$hash_item} ) ne 'HASH' ) {
+			die( '"' . $hash_item . '" is not a hash' );
+		}
+	}
+	if ( !defined( $model->{'total_docs'} ) || $model->{'total_docs'} !~ /\A\d+\z/ ) {
+		die('"total_docs" is not a whole number');
+	}
+	if ( !defined( $model->{'token_splitter'} ) || $model->{'token_splitter'} eq '' ) {
+		die('"token_splitter" is undef or a empty string');
+	}
+	foreach my $regex_item ( 'token_splitter', 'stop_regex' ) {
+		if ( defined( $model->{$regex_item} ) && !defined( eval { qr/$model->{$regex_item}/ } ) ) {
+			die( '"' . $regex_item . '" does not compile as a regex... ' . $@ );
+		}
+	}
+
+	$self->{'model'} = $model;
+} ## end sub from_string
+
+=head2 save
+
+Saves the model to the specified file as JSON via to_string. The write
+is done atomically, written to a temporary file and then renamed into
+place, so the file will never contain a partially written model.
+
+    $nb->save('model.json');
+
+Will die if no file is specified or on failure to write the file.
+
+=cut
+
+sub save {
+	my ( $self, $file ) = @_;
+
+	if ( !defined($file) ) {
+		die('No file specified');
+	}
+
+	my $raw = $self->to_string;
+
+	eval { write_file( $file, { 'atomic' => 1, 'err_mode' => 'croak' }, $raw ); };
+	if ($@) {
+		die( 'Failed to write "' . $file . '"... ' . $@ );
+	}
+} ## end sub save
+
+=head2 load
+
+Loads the model from the specified file via from_string, replacing the
+current model.
+
+    $nb->load('model.json');
+
+Will die if no file is specified, on failure to read the file, failure
+to parse it as JSON, or if the parsed JSON does not look like a saved
+model.
+
+If it dies, the current model is left unchanged.
+
+=cut
+
+sub load {
+	my ( $self, $file ) = @_;
+
+	if ( !defined($file) ) {
+		die('No file specified');
+	}
+
+	my $raw = eval { read_file( $file, { 'err_mode' => 'croak' } ); };
+	if ( !defined($raw) ) {
+		die( 'Failed to read "' . $file . '"... ' . $@ );
+	}
+
+	eval { $self->from_string($raw); };
+	if ($@) {
+		die( 'Failed to load the model from "' . $file . '"... ' . $@ );
+	}
+} ## end sub load
+
+=head1 MODEL FORMAT
+
+The model as produced by to_string and save is a JSON hash like the
+below.
+
+    {
+       "format" : "Algorithm::Classifier::NaiveBayes",
+       "version" : 1,
+       "class_counts" : {
+          "ham" : 1,
+          "spam" : 1
+       },
+       "class_totals" : {
+          "ham" : 4,
+          "spam" : 4
+       },
+       "token_counts" : {
+          "ham" : {
+             "at" : 1,
+             "meeting" : 1,
+             "noon" : 1,
+             "tomorrow" : 1
+          },
+          "spam" : {
+             "buy" : 1,
+             "cheap" : 1,
+             "now" : 1,
+             "pills" : 1
+          }
+       },
+       "tokens" : {
+          "at" : 1,
+          "buy" : 1,
+          "cheap" : 1,
+          "meeting" : 1,
+          "noon" : 1,
+          "now" : 1,
+          "pills" : 1,
+          "tomorrow" : 1
+       },
+       "total_docs" : 2,
+       "lc_tokens" : 1,
+       "token_splitter" : "\\s+",
+       "stop_regex" : null
+    }
+
+The keys are as below.
+
+    format - The name of this module. Used by from_string to make sure
+        the JSON is actually a saved model.
+
+    version - The version of the model format. Currently 1. from_string
+        will refuse to load a model with a version newer than it
+        understands.
+
+    class_counts - Per class count of how many documents have been
+        trained.
+
+    class_totals - Per class count of how many tokens have been
+        trained.
+
+    token_counts - Per class hash of token to how many times that
+        token has been trained.
+
+    tokens - A hash of every token trained across all classes. The
+        size of this is the vocabulary size used for smoothing.
+
+    total_docs - Total number of documents trained across all classes.
+
+    lc_tokens, token_splitter, stop_regex - The tokenizer settings as
+        documented under new.
 
 =head1 AUTHOR
 

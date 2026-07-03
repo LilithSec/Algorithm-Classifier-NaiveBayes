@@ -16,9 +16,12 @@ my %WriteMakefileArgs = (
 	TEST_REQUIRES => {
 		'Test::More' => '0',
 	},
-	PREREQ_PM => {},
-	dist      => { COMPRESS => 'gzip -9f', SUFFIX => 'gz', },
-	clean     => { FILES    => 'Algorithm-Classifier-NaiveBayes-*' },
+	PREREQ_PM => {
+		'JSON::PP'    => '0',
+		'File::Slurp' => '0',
+	},
+	dist  => { COMPRESS => 'gzip -9f', SUFFIX => 'gz', },
+	clean => { FILES    => 'Algorithm-Classifier-NaiveBayes-*' },
 );
 
 # Compatibility with old versions of ExtUtils::MakeMaker

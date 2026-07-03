@@ -1,50 +1,107 @@
-Algorithm-Classifier-NaiveBayes
+# Algorithm-Classifier-NaiveBayes
 
-The README is used to introduce the module and provide instructions on
-how to install the module, any machine dependencies it may have (for
-example C compilers and installed libraries) and any other information
-that should be provided before the module is installed.
+A multinomial naive Bayes text classifier for Perl with Laplace smoothing.
 
-A README file is required for CPAN modules since CPAN extracts the README
-file from a module distribution so that people browsing the archive
-can use it to get an idea of the module's uses. It is usually a good idea
-to provide version information here so that people can decide whether
-fixes for the module are worth downloading.
+Strings are broken into tokens and each class is scored using the log of
+its prior probability, based on how often the class was trained, plus the
+sum of the log probabilities of each token appearing in that class. Token
+probabilities use add-one, Laplace, smoothing so tokens never seen for a
+class do not zero out the whole score.
 
+Features...
 
-INSTALLATION
+- Classes are not predefined. Training a new class name brings it into
+  existence and untraining everything for it removes it.
+- Configurable tokenization. Token splitting regex, lowercasing, and an
+  optional stop word regex.
+- Models can be untrained as well as trained, so mistakes can be corrected
+  without retraining from scratch.
+- Models can be saved to and loaded from JSON, either as a string or a
+  file. File writes are atomic.
 
-To install this module, run the following commands:
+## Usage
 
-	perl Makefile.PL
-	make
-	make test
-	make install
+```perl
+use Algorithm::Classifier::NaiveBayes;
 
-SUPPORT AND DOCUMENTATION
+my $nb = Algorithm::Classifier::NaiveBayes->new;
+
+# train it with examples of each class
+$nb->train( 'spam', 'buy cheap pills now' );
+$nb->train( 'spam', 'cheap watches for sale' );
+$nb->train( 'ham',  'meeting at noon tomorrow' );
+$nb->train( 'ham',  'lunch with the team' );
+
+# classify some new text
+my $class = $nb->classify('cheap pills for sale');
+# $class is now 'spam'
+
+# or get the score for every class as well
+my ( $best, $scores ) = $nb->classify('cheap pills for sale');
+
+# save the model for later and load it again
+$nb->save('model.json');
+
+my $loaded = Algorithm::Classifier::NaiveBayes->new;
+$loaded->load('model.json');
+```
+
+For full documentation see the POD for the module. Runnable examples,
+including small command line training and classification scripts, can
+be found under [examples/](examples/).
+
+## Installation
+
+The non-core modules below are required.
+
+- File::Slurp
+
+### FreeBSD
+
+```shell
+pkg install perl5 p5-File-Slurp p5-App-cpanminus
+cpanm Algorithm::Classifier::NaiveBayes
+```
+
+### Debian
+
+```shell
+apt-get install perl libfile-slurp-perl cpanminus
+cpanm Algorithm::Classifier::NaiveBayes
+```
+
+### Source
+
+To install this module from this repo, run the following commands.
+
+```shell
+perl Makefile.PL
+make
+make test
+make install
+```
+
+## Support and Documentation
 
 After installing, you can find documentation for this module with the
 perldoc command.
 
-    perldoc Algorithm::Classifier::NaiveBayes
+```shell
+perldoc Algorithm::Classifier::NaiveBayes
+```
 
 You can also look for information at:
 
-    RT, CPAN's request tracker (report bugs here)
-        https://rt.cpan.org/NoAuth/Bugs.html?Dist=Algorithm-Classifier-NaiveBayes
+- RT, CPAN's request tracker (report bugs here)
+  https://rt.cpan.org/NoAuth/Bugs.html?Dist=Algorithm-Classifier-NaiveBayes
 
-    CPAN Ratings
-        https://cpanratings.perl.org/d/Algorithm-Classifier-NaiveBayes
+- Search CPAN
+  https://metacpan.org/release/Algorithm-Classifier-NaiveBayes
 
-    Search CPAN
-        https://metacpan.org/release/Algorithm-Classifier-NaiveBayes
-
-
-LICENSE AND COPYRIGHT
+## License and Copyright
 
 This software is Copyright (c) 2026 by Zane C. Bowers-Hadley.
 
 This is free software, licensed under:
 
   The GNU Lesser General Public License, Version 2.1, February 1999
-
