@@ -26,6 +26,14 @@ is( $nb->{'model'}{'ngrams'}, 1, 'ngrams defaults to 1' );
 my $bigrams = Algorithm::Classifier::NaiveBayes->new( 'ngrams' => 2 );
 is( $bigrams->{'model'}{'ngrams'}, 2, 'ngrams arg is used' );
 
+is( $nb->{'model'}{'token_weighting'}, 'count', 'token_weighting defaults to count' );
+my $binary = Algorithm::Classifier::NaiveBayes->new( 'token_weighting' => 'binary' );
+is( $binary->{'model'}{'token_weighting'}, 'binary', 'token_weighting arg is used' );
+
+is( $nb->{'model'}{'priors'}, 'trained', 'priors defaults to trained' );
+my $uniform = Algorithm::Classifier::NaiveBayes->new( 'priors' => 'uniform' );
+is( $uniform->{'model'}{'priors'}, 'uniform', 'priors arg is used' );
+
 my $nb_args = Algorithm::Classifier::NaiveBayes->new(
 	'lc_tokens'      => 0,
 	'token_splitter' => ',',
@@ -83,5 +91,11 @@ like( $@, qr/ngrams must be/, 'a non-numeric ngrams dies' );
 
 eval { Algorithm::Classifier::NaiveBayes->new( 'ngrams' => 1.5 ); };
 like( $@, qr/ngrams must be/, 'a fractional ngrams dies' );
+
+eval { Algorithm::Classifier::NaiveBayes->new( 'token_weighting' => 'derp' ); };
+like( $@, qr/token_weighting must be either/, 'unknown token_weighting dies' );
+
+eval { Algorithm::Classifier::NaiveBayes->new( 'priors' => 'derp' ); };
+like( $@, qr/priors must be either/, 'unknown priors dies' );
 
 done_testing;

@@ -14,10 +14,12 @@ $nb->train( 'ham',  'lunch meeting tomorrow' );
 my $json = $nb->to_string;
 like( $json, qr/"class_counts"/, 'to_string returns JSON' );
 like( $json, qr/"format"\s*:\s*"Algorithm::Classifier::NaiveBayes"/, 'to_string includes the format' );
-like( $json, qr/"version"\s*:\s*3/,           'to_string includes the model version' );
-like( $json, qr/"smoothing"\s*:\s*"laplace"/, 'to_string includes the smoothing' );
-like( $json, qr/"alpha"\s*:\s*1/,             'to_string includes the alpha' );
-like( $json, qr/"ngrams"\s*:\s*1/,            'to_string includes the ngrams' );
+like( $json, qr/"version"\s*:\s*1/,                 'to_string includes the model version' );
+like( $json, qr/"smoothing"\s*:\s*"laplace"/,       'to_string includes the smoothing' );
+like( $json, qr/"alpha"\s*:\s*1/,                   'to_string includes the alpha' );
+like( $json, qr/"ngrams"\s*:\s*1/,                  'to_string includes the ngrams' );
+like( $json, qr/"token_weighting"\s*:\s*"count"/,   'to_string includes the token_weighting' );
+like( $json, qr/"priors"\s*:\s*"trained"/,          'to_string includes the priors' );
 
 my $from = Algorithm::Classifier::NaiveBayes->new;
 $from->from_string($json);
@@ -43,20 +45,22 @@ like( $@, qr/"format" is not/, 'from_string with a wrong format dies' );
 eval { $from->from_string( '{"format":"Algorithm::Classifier::NaiveBayes","version":"x",' . $base_model . '}' ); };
 like( $@, qr/"version" is not a int/, 'from_string with a non-numeric version dies' );
 
-eval { $from->from_string( '{"format":"Algorithm::Classifier::NaiveBayes","version":4,' . $base_model . '}' ); };
+eval { $from->from_string( '{"format":"Algorithm::Classifier::NaiveBayes","version":2,' . $base_model . '}' ); };
 like( $@, qr/newer than the highest supported/, 'from_string with a too new version dies' );
 
-eval { $from->from_string( '{"format":"Algorithm::Classifier::NaiveBayes","version":3,' . $base_model . '}' ); };
+eval { $from->from_string( '{"format":"Algorithm::Classifier::NaiveBayes","version":1,' . $base_model . '}' ); };
 is( $@, '', 'from_string with a good format and version works' );
 
-# version 1 models predate smoothing, alpha, and ngrams and get them defaulted
+# models missing the optional tunables get them defaulted
 $from->from_string( '{"format":"Algorithm::Classifier::NaiveBayes","version":1,' . $base_model . '}' );
-is( $from->{'model'}{'smoothing'}, 'laplace', 'version 1 models default to laplace smoothing' );
-is( $from->{'model'}{'alpha'},     1,         'version 1 models default to a alpha of 1' );
-is( $from->{'model'}{'ngrams'},    1,         'version 1 models default to a ngrams of 1' );
+is( $from->{'model'}{'smoothing'},       'laplace', 'smoothing defaults to laplace when missing' );
+is( $from->{'model'}{'alpha'},           1,         'alpha defaults to 1 when missing' );
+is( $from->{'model'}{'ngrams'},          1,         'ngrams defaults to 1 when missing' );
+is( $from->{'model'}{'token_weighting'}, 'count',   'token_weighting defaults to count when missing' );
+is( $from->{'model'}{'priors'},          'trained', 'priors defaults to trained when missing' );
 
 # smoothing and alpha checking
-my $v2 = '{"format":"Algorithm::Classifier::NaiveBayes","version":2,' . $base_model;
+my $v2 = '{"format":"Algorithm::Classifier::NaiveBayes","version":1,' . $base_model;
 
 eval { $from->from_string( $v2 . ',"smoothing":"derp"}' ); };
 like( $@, qr/"smoothing" is not/, 'from_string with a unknown smoothing dies' );
@@ -82,5 +86,19 @@ like( $@, qr/"ngrams" is not/, 'from_string with a non-numeric ngrams dies' );
 
 eval { $from->from_string( $v2 . ',"ngrams":2}' ); };
 is( $@, '', 'from_string with a good ngrams works' );
+
+# token_weighting checking
+eval { $from->from_string( $v2 . ',"token_weighting":"derp"}' ); };
+like( $@, qr/"token_weighting" is not/, 'from_string with a unknown token_weighting dies' );
+
+eval { $from->from_string( $v2 . ',"token_weighting":"binary"}' ); };
+is( $@, '', 'from_string with a good token_weighting works' );
+
+# priors checking
+eval { $from->from_string( $v2 . ',"priors":"derp"}' ); };
+like( $@, qr/"priors" is not/, 'from_string with a unknown priors dies' );
+
+eval { $from->from_string( $v2 . ',"priors":"uniform"}' ); };
+is( $@, '', 'from_string with a good priors works' );
 
 done_testing;

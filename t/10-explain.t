@@ -66,4 +66,15 @@ foreach my $check_class ( 'spam', 'ham' ) {
 ok( $explanation->{'priors'}{'ham'} > $explanation->{'priors'}{'spam'},
 	'the more trained class has the higher prior' );
 
+# uniform priors show up in the explanation
+my $uniform = Algorithm::Classifier::NaiveBayes->new( 'priors' => 'uniform' );
+$uniform->train( 'spam', 'buy cheap pills' );
+$uniform->train( 'ham',  'meeting at noon' );
+$uniform->train( 'ham',  'lunch meeting' );
+my $uniform_explanation = $uniform->explain('cheap meeting');
+ok(
+	abs( $uniform_explanation->{'priors'}{'spam'} - $uniform_explanation->{'priors'}{'ham'} ) < 1e-9,
+	'uniform priors are equal in explain'
+);
+
 done_testing;

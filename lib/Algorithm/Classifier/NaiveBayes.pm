@@ -19,7 +19,7 @@ Version 0.0.1
 our $VERSION = '0.0.1';
 
 # version of the saved model format
-our $MODEL_VERSION = 3;
+our $MODEL_VERSION = 1;
 
 =head1 SYNOPSIS
 
@@ -57,6 +57,11 @@ not zero out the whole score. By default this is add-one, Laplace,
 smoothing, but Lidstone, add-alpha, smoothing with a configurable
 alpha may be selected instead. Smaller alphas, such as 0.1 to 0.5,
 often perform better on small training sets.
+
+By default token occurrences are weighted by their raw counts, but
+binary weighting, counting each unique token once per document, may
+be selected instead via token_weighting. Class priors default to how
+often each class was trained, but may be set to uniform via priors.
 
 Classes are not predefined. A class exists once something has been
 trained for it and stops existing if everything for it is untrained.
@@ -99,6 +104,21 @@ The following args are supported.
         triplets and so on.
         Default: 1
 
+    token_weighting - How token occurrences are weighted. "count" uses
+        raw counts, so a token appearing three times in a document
+        counts three times. "binary" counts each unique token once per
+        document, both when training and classifying, which often works
+        better for short texts. Also known as binarized multinomial
+        naive Bayes.
+        Default: count
+
+    priors - How class priors are computed when classifying. "trained"
+        uses how often each class was trained, so classes with more
+        documents are favored. "uniform" gives every class a equal
+        prior, useful when the training set is unbalanced in a way real
+        usage will not be.
+        Default: trained
+
 token_splitter and stop_regex may be either a string or a qr// Regexp.
 
 Will die if passed a unknown arg or if token_splitter or stop_regex
@@ -122,6 +142,12 @@ Some examples...
     # also generate bigrams, so phrases like "free cruise" become tokens
     my $nb = Algorithm::Classifier::NaiveBayes->new( 'ngrams' => 2 );
 
+    # count each unique token once per document
+    my $nb = Algorithm::Classifier::NaiveBayes->new( 'token_weighting' => 'binary' );
+
+    # give every class a equal prior regardless of training balance
+    my $nb = Algorithm::Classifier::NaiveBayes->new( 'priors' => 'uniform' );
+
 =cut
 
 sub new {
@@ -134,6 +160,8 @@ sub new {
 		'smoothing'      => 1,
 		'alpha'          => 1,
 		'ngrams'         => 1,
+		'token_weighting' => 1,
+		'priors'          => 1,
 	);
 	foreach my $arg ( keys %args ) {
 		if ( !defined( $known_args{$arg} ) ) {
@@ -183,6 +211,16 @@ sub new {
 		die('ngrams must be a whole number greater than 0');
 	}
 
+	my $token_weighting = defined( $args{'token_weighting'} ) ? $args{'token_weighting'} : 'count';
+	if ( $token_weighting ne 'count' && $token_weighting ne 'binary' ) {
+		die( 'token_weighting must be either "count" or "binary" and not "' . $token_weighting . '"' );
+	}
+
+	my $priors = defined( $args{'priors'} ) ? $args{'priors'} : 'trained';
+	if ( $priors ne 'trained' && $priors ne 'uniform' ) {
+		die( 'priors must be either "trained" or "uniform" and not "' . $priors . '"' );
+	}
+
 	my $self = {
 		'model' => {
 			'format'         => __PACKAGE__,
@@ -190,6 +228,8 @@ sub new {
 			'smoothing'      => $smoothing,
 			'alpha'          => $alpha,
 			'ngrams'         => $ngrams,
+			'token_weighting' => $token_weighting,
+			'priors'          => $priors,
 			'class_counts'   => {},
 			'token_counts'   => {},
 			'class_totals'   => {},
@@ -311,12 +351,37 @@ sub train {
 	if ( !defined( $self->{'model'}{'class_totals'}{$class} ) ) {
 		$self->{'model'}{'class_totals'}{$class} = 0;
 	}
-	for my $word ( $self->tokenize($text) ) {
+	for my $word ( $self->_weighted_tokens( $self->tokenize($text) ) ) {
 		$self->{'model'}{'token_counts'}{$class}{$word}++;
 		$self->{'model'}{'class_totals'}{$class}++;
 		$self->{'model'}{'tokens'}{$word} = 1;
 	}
 } ## end sub train
+
+# returns the log prior probability for a class per the priors setting
+sub _log_prior {
+	my ( $self, $class ) = @_;
+
+	if ( defined( $self->{'model'}{'priors'} ) && $self->{'model'}{'priors'} eq 'uniform' ) {
+		my $num_classes = scalar keys %{ $self->{'model'}{'class_counts'} };
+		return log( 1 / $num_classes );
+	}
+
+	return log( $self->{'model'}{'class_counts'}{$class} / $self->{'model'}{'total_docs'} );
+} ## end sub _log_prior
+
+# applies the token_weighting setting to a list of tokens... for binary
+# weighting each unique token is only counted once
+sub _weighted_tokens {
+	my ( $self, @tokens ) = @_;
+
+	if ( defined( $self->{'model'}{'token_weighting'} ) && $self->{'model'}{'token_weighting'} eq 'binary' ) {
+		my %seen;
+		@tokens = grep { !$seen{$_}++ } @tokens;
+	}
+
+	return @tokens;
+} ## end sub _weighted_tokens
 
 =head2 untrain
 
@@ -360,7 +425,7 @@ sub untrain {
 	$self->{'model'}{'class_counts'}{$class}--;
 	$self->{'model'}{'total_docs'}--;
 
-	for my $word ( $self->tokenize($text) ) {
+	for my $word ( $self->_weighted_tokens( $self->tokenize($text) ) ) {
 		if ( defined( $self->{'model'}{'token_counts'}{$class}{$word} ) ) {
 			$self->{'model'}{'token_counts'}{$class}{$word}--;
 			$self->{'model'}{'class_totals'}{$class}--;
@@ -534,13 +599,13 @@ sub classify {
 		return wantarray ? ( undef, {}, {} ) : undef;
 	}
 
-	my @tokens     = $self->tokenize($text);
+	my @tokens     = $self->_weighted_tokens( $self->tokenize($text) );
 	my $token_size = scalar keys %{ $self->{'model'}{'tokens'} };
 	my $alpha      = defined( $self->{'model'}{'alpha'} ) ? $self->{'model'}{'alpha'} : 1;
 
 	my %scores;
 	for my $class ( keys %{ $self->{'model'}{'class_counts'} } ) {
-		my $log_prob = log( $self->{'model'}{'class_counts'}{$class} / $self->{'model'}{'total_docs'} );
+		my $log_prob = $self->_log_prior($class);
 		my $total    = $self->{'model'}{'class_totals'}{$class} || 0;
 
 		if ( ( $total + ( $alpha * $token_size ) ) > 0 ) {
@@ -632,7 +697,7 @@ sub explain {
 		return undef;
 	}
 
-	my @tokens     = $self->tokenize($text);
+	my @tokens     = $self->_weighted_tokens( $self->tokenize($text) );
 	my $token_size = scalar keys %{ $self->{'model'}{'tokens'} };
 	my $alpha      = defined( $self->{'model'}{'alpha'} ) ? $self->{'model'}{'alpha'} : 1;
 
@@ -645,7 +710,7 @@ sub explain {
 	my %scores;
 	my %token_info;
 	for my $class ( keys %{ $self->{'model'}{'class_counts'} } ) {
-		$priors{$class} = log( $self->{'model'}{'class_counts'}{$class} / $self->{'model'}{'total_docs'} );
+		$priors{$class} = $self->_log_prior($class);
 		my $log_prob = $priors{$class};
 		my $total    = $self->{'model'}{'class_totals'}{$class} || 0;
 		my $denom    = $total + ( $alpha * $token_size );
@@ -775,8 +840,7 @@ sub from_string {
 		}
 	}
 
-	# smoothing and alpha were added in model version 2, so default them
-	# for older models
+	# default the optional tunables if missing
 	if ( !defined( $model->{'smoothing'} ) ) {
 		$model->{'smoothing'} = 'laplace';
 	}
@@ -793,12 +857,25 @@ sub from_string {
 		die('"alpha" must be 1 when smoothing is "laplace"');
 	}
 
-	# ngrams was added in model version 3, so default it for older models
 	if ( !defined( $model->{'ngrams'} ) ) {
 		$model->{'ngrams'} = 1;
 	}
 	if ( ref( $model->{'ngrams'} ) ne '' || $model->{'ngrams'} !~ /\A\d+\z/ || $model->{'ngrams'} < 1 ) {
 		die('"ngrams" is not a whole number greater than 0');
+	}
+
+	if ( !defined( $model->{'token_weighting'} ) ) {
+		$model->{'token_weighting'} = 'count';
+	}
+	if ( $model->{'token_weighting'} ne 'count' && $model->{'token_weighting'} ne 'binary' ) {
+		die('"token_weighting" is not "count" or "binary"');
+	}
+
+	if ( !defined( $model->{'priors'} ) ) {
+		$model->{'priors'} = 'trained';
+	}
+	if ( $model->{'priors'} ne 'trained' && $model->{'priors'} ne 'uniform' ) {
+		die('"priors" is not "trained" or "uniform"');
 	}
 
 	$self->{'model'} = $model;
@@ -871,10 +948,12 @@ below.
 
     {
        "format" : "Algorithm::Classifier::NaiveBayes",
-       "version" : 3,
+       "version" : 1,
        "smoothing" : "laplace",
        "alpha" : 1,
        "ngrams" : 1,
+       "token_weighting" : "count",
+       "priors" : "trained",
        "class_counts" : {
           "ham" : 1,
           "spam" : 1
@@ -918,12 +997,11 @@ The keys are as below.
     format - The name of this module. Used by from_string to make sure
         the JSON is actually a saved model.
 
-    version - The version of the model format. Currently 3. from_string
+    version - The version of the model format. Currently 1. from_string
         will refuse to load a model with a version newer than it
-        understands. Older models missing newer keys are loaded with
-        those keys defaulted. smoothing and alpha, added in version 2,
-        default to laplace and 1. ngrams, added in version 3, defaults
-        to 1.
+        understands. Models missing any of the optional tunables,
+        smoothing, alpha, ngrams, token_weighting, or priors, are
+        loaded with those keys defaulted.
 
     class_counts - Per class count of how many documents have been
         trained.
@@ -943,6 +1021,11 @@ The keys are as below.
         settings as documented under new.
 
     smoothing, alpha - The smoothing settings as documented under new.
+
+    token_weighting - The token weighting setting as documented under
+        new.
+
+    priors - The class prior setting as documented under new.
 
 =head1 AUTHOR
 

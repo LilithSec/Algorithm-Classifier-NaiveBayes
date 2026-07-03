@@ -20,6 +20,14 @@ is( $nb->{'model'}{'token_counts'}{'ham'}{'meeting'}, 2, 'token_counts across do
 ok( !exists $nb->{'model'}{'token_counts'}{'spam'}{''}, 'no empty token trained' );
 is( scalar keys %{ $nb->{'model'}{'tokens'} }, 9, 'vocabulary size across classes' );
 
+# binary token weighting counts each unique token once per document
+my $bin = Algorithm::Classifier::NaiveBayes->new( 'token_weighting' => 'binary' );
+$bin->train( 'spam', 'cheap cheap cheap pills' );
+is( $bin->{'model'}{'token_counts'}{'spam'}{'cheap'}, 1, 'binary weighting counts repeated tokens once' );
+is( $bin->{'model'}{'class_totals'}{'spam'},          2, 'binary weighting class_totals count unique tokens' );
+$bin->train( 'spam', 'cheap watches' );
+is( $bin->{'model'}{'token_counts'}{'spam'}{'cheap'}, 2, 'binary weighting still counts across documents' );
+
 # undef class or text dies
 eval { $nb->train( undef, 'foo bar' ); };
 like( $@, qr/No class specified/, 'train with a undef class dies' );

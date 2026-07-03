@@ -64,4 +64,30 @@ $lap->train( 'only', 'aa bb' );
 my ( $lapbest, $lapscores ) = $lap->classify('cc');
 ok( abs( $lapscores->{'only'} - log( 1 / 4 ) ) < 1e-9, 'laplace smoothing unchanged' );
 
+# binary token weighting dedupes the text being classified
+# one class trained "aa bb", so classifying "aa aa" binary scores
+# log( (1 + 1) / (2 + 2) ) for the single deduped aa
+my $bin = Algorithm::Classifier::NaiveBayes->new( 'token_weighting' => 'binary' );
+$bin->train( 'only', 'aa bb' );
+my ( $binbest, $binscores ) = $bin->classify('aa aa');
+ok( abs( $binscores->{'only'} - log( 2 / 4 ) ) < 1e-9, 'binary weighting dedupes tokens when classifying' );
+
+# uniform priors
+# with no tokens the score is just the prior, so a unbalanced training
+# set shows the difference between trained and uniform priors
+my $trained_priors = Algorithm::Classifier::NaiveBayes->new;
+$trained_priors->train( 'a', 'xx' );
+$trained_priors->train( 'a', 'yy' );
+$trained_priors->train( 'b', 'xx' );
+my ( $tpbest, $tpscores ) = $trained_priors->classify('');
+ok( abs( $tpscores->{'a'} - log( 2 / 3 ) ) < 1e-9, 'trained priors reflect training balance' );
+
+my $uniform_priors = Algorithm::Classifier::NaiveBayes->new( 'priors' => 'uniform' );
+$uniform_priors->train( 'a', 'xx' );
+$uniform_priors->train( 'a', 'yy' );
+$uniform_priors->train( 'b', 'xx' );
+my ( $upbest, $upscores ) = $uniform_priors->classify('');
+ok( abs( $upscores->{'a'} - log( 1 / 2 ) ) < 1e-9, 'uniform priors are log(1/classes)' );
+ok( abs( $upscores->{'a'} - $upscores->{'b'} ) < 1e-9, 'uniform priors are equal for every class' );
+
 done_testing;

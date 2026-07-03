@@ -56,4 +56,13 @@ $rt->train( 'ham', 'meeting at noon' );
 $rt->untrain( 'ham', 'meeting at noon' );
 is_deeply( $rt->{'model'}, $before, 'untrain restores the model to its pre-train state' );
 
+# binary weighting untrains each unique token once, so train then
+# untrain still round trips
+my $bin = Algorithm::Classifier::NaiveBayes->new( 'token_weighting' => 'binary' );
+$bin->train( 'spam', 'cheap pills' );
+my $bin_before = Storable::dclone( $bin->{'model'} );
+$bin->train( 'spam', 'cheap cheap cheap watches' );
+$bin->untrain( 'spam', 'cheap cheap cheap watches' );
+is_deeply( $bin->{'model'}, $bin_before, 'binary weighting untrain restores the model' );
+
 done_testing;
