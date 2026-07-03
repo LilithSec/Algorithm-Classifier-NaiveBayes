@@ -12,6 +12,19 @@ is( $nb->{'model'}{'lc_tokens'},      1,     'lc_tokens defaults to 1' );
 is( $nb->{'model'}{'token_splitter'}, '\s+', 'token_splitter defaults to \s+' );
 is( $nb->{'model'}{'stop_regex'},     undef, 'stop_regex defaults to undef' );
 is( $nb->{'model'}{'total_docs'},     0,     'total_docs starts at 0' );
+is( $nb->{'model'}{'smoothing'},      'laplace', 'smoothing defaults to laplace' );
+is( $nb->{'model'}{'alpha'},          1,         'alpha defaults to 1 for laplace' );
+
+my $lidstone = Algorithm::Classifier::NaiveBayes->new( 'smoothing' => 'lidstone' );
+is( $lidstone->{'model'}{'smoothing'}, 'lidstone', 'smoothing arg is used' );
+is( $lidstone->{'model'}{'alpha'},     0.5,        'alpha defaults to 0.5 for lidstone' );
+
+my $lidstone_alpha = Algorithm::Classifier::NaiveBayes->new( 'smoothing' => 'lidstone', 'alpha' => 0.1 );
+is( $lidstone_alpha->{'model'}{'alpha'}, 0.1, 'alpha arg is used' );
+
+is( $nb->{'model'}{'ngrams'}, 1, 'ngrams defaults to 1' );
+my $bigrams = Algorithm::Classifier::NaiveBayes->new( 'ngrams' => 2 );
+is( $bigrams->{'model'}{'ngrams'}, 2, 'ngrams arg is used' );
 
 my $nb_args = Algorithm::Classifier::NaiveBayes->new(
 	'lc_tokens'      => 0,
@@ -46,5 +59,29 @@ is( $@, '', 'qr// Regexp stop_regex is accepted' );
 
 eval { Algorithm::Classifier::NaiveBayes->new( 'token_splitter' => undef ); };
 is( $@, '', 'explicit undef args are accepted' );
+
+eval { Algorithm::Classifier::NaiveBayes->new( 'smoothing' => 'derp' ); };
+like( $@, qr/smoothing must be either/, 'unknown smoothing dies' );
+
+eval { Algorithm::Classifier::NaiveBayes->new( 'alpha' => 0.5 ); };
+like( $@, qr/alpha may only be specified/, 'alpha with laplace smoothing dies' );
+
+eval { Algorithm::Classifier::NaiveBayes->new( 'smoothing' => 'lidstone', 'alpha' => 0 ); };
+like( $@, qr/greater than 0/, 'alpha of 0 dies' );
+
+eval { Algorithm::Classifier::NaiveBayes->new( 'smoothing' => 'lidstone', 'alpha' => 'x' ); };
+like( $@, qr/greater than 0/, 'non-numeric alpha dies' );
+
+eval { Algorithm::Classifier::NaiveBayes->new( 'smoothing' => 'lidstone', 'alpha' => '.5' ); };
+is( $@, '', 'a alpha of .5 is accepted' );
+
+eval { Algorithm::Classifier::NaiveBayes->new( 'ngrams' => 0 ); };
+like( $@, qr/ngrams must be/, 'a ngrams of 0 dies' );
+
+eval { Algorithm::Classifier::NaiveBayes->new( 'ngrams' => 'x' ); };
+like( $@, qr/ngrams must be/, 'a non-numeric ngrams dies' );
+
+eval { Algorithm::Classifier::NaiveBayes->new( 'ngrams' => 1.5 ); };
+like( $@, qr/ngrams must be/, 'a fractional ngrams dies' );
 
 done_testing;

@@ -16,6 +16,8 @@ t/05-untrain.t
 t/06-string.t
 t/07-save-load.t
 t/08-listing.t
+t/09-prune.t
+t/10-explain.t
 t/manifest.t
 t/pod-coverage.t
 t/pod.t

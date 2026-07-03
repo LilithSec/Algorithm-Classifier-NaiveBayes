@@ -19,7 +19,7 @@ Version 0.0.1
 our $VERSION = '0.0.1';
 
 # version of the saved model format
-our $MODEL_VERSION = 1;
+our $MODEL_VERSION = 3;
 
 =head1 SYNOPSIS
 
@@ -37,8 +37,8 @@ our $MODEL_VERSION = 1;
     my $class = $nb->classify('cheap pills for sale');
     # $class is now 'spam'
 
-    # or get the score for every class as well
-    my ( $best, $scores ) = $nb->classify('cheap pills for sale');
+    # or get the score and probability for every class as well
+    my ( $best, $scores, $probs ) = $nb->classify('cheap pills for sale');
 
     # save the model for later and load it again
     $nb->save('model.json');
@@ -52,8 +52,11 @@ This module implements a multinomial naive Bayes classifier. Strings
 are broken into tokens and each class is scored using the log of its
 prior probability, based on how often the class was trained, plus the
 sum of the log probabilities of each token appearing in that class.
-Token probabilities use add-one, Laplace, smoothing so tokens never
-seen for a class do not zero out the whole score.
+Token probabilities are smoothed so tokens never seen for a class do
+not zero out the whole score. By default this is add-one, Laplace,
+smoothing, but Lidstone, add-alpha, smoothing with a configurable
+alpha may be selected instead. Smaller alphas, such as 0.1 to 0.5,
+often perform better on small training sets.
 
 Classes are not predefined. A class exists once something has been
 trained for it and stops existing if everything for it is untrained.
@@ -81,6 +84,21 @@ The following args are supported.
         Matched anchored, so it must match the entire token.
         Default: undef
 
+    smoothing - The smoothing to use for token probabilities. Either
+        "laplace", add-one, or "lidstone", add-alpha.
+        Default: laplace
+
+    alpha - The alpha to use for lidstone smoothing. Must be a number
+        greater than 0. May only be specified when smoothing is set to
+        lidstone. Laplace smoothing is lidstone with a alpha of 1.
+        Default: 0.5
+
+    ngrams - Max size of n-grams to generate from adjacent tokens when
+        tokenizing. 1 means single tokens only. 2 means also generate
+        each adjacent pair of tokens joined by a space. 3 also adds
+        triplets and so on.
+        Default: 1
+
 token_splitter and stop_regex may be either a string or a qr// Regexp.
 
 Will die if passed a unknown arg or if token_splitter or stop_regex
@@ -98,12 +116,25 @@ Some examples...
     # drop some common stop words
     my $nb = Algorithm::Classifier::NaiveBayes->new( 'stop_regex' => qr/a|an|and|the|of|to/ );
 
+    # use lidstone smoothing with a alpha of 0.1
+    my $nb = Algorithm::Classifier::NaiveBayes->new( 'smoothing' => 'lidstone', 'alpha' => 0.1 );
+
+    # also generate bigrams, so phrases like "free cruise" become tokens
+    my $nb = Algorithm::Classifier::NaiveBayes->new( 'ngrams' => 2 );
+
 =cut
 
 sub new {
 	my ( $pkg, %args ) = @_;
 
-	my %known_args = ( 'lc_tokens' => 1, 'token_splitter' => 1, 'stop_regex' => 1 );
+	my %known_args = (
+		'lc_tokens'      => 1,
+		'token_splitter' => 1,
+		'stop_regex'     => 1,
+		'smoothing'      => 1,
+		'alpha'          => 1,
+		'ngrams'         => 1,
+	);
 	foreach my $arg ( keys %args ) {
 		if ( !defined( $known_args{$arg} ) ) {
 			die( '"' . $arg . '" is not a known arg' );
@@ -130,10 +161,35 @@ sub new {
 		} ## end if ( defined( $args{$regex_arg} ) )
 	} ## end foreach my $regex_arg ( 'token_splitter', 'stop_regex')
 
+	my $smoothing = defined( $args{'smoothing'} ) ? $args{'smoothing'} : 'laplace';
+	if ( $smoothing ne 'laplace' && $smoothing ne 'lidstone' ) {
+		die( 'smoothing must be either "laplace" or "lidstone" and not "' . $smoothing . '"' );
+	}
+	my $alpha;
+	if ( defined( $args{'alpha'} ) ) {
+		if ( $smoothing eq 'laplace' ) {
+			die('alpha may only be specified when smoothing is set to lidstone');
+		}
+		if ( ref( $args{'alpha'} ) ne '' || $args{'alpha'} !~ /\A\d*\.?\d+\z/ || $args{'alpha'} <= 0 ) {
+			die('alpha must be a number greater than 0');
+		}
+		$alpha = $args{'alpha'};
+	} else {
+		$alpha = $smoothing eq 'lidstone' ? 0.5 : 1;
+	}
+
+	my $ngrams = defined( $args{'ngrams'} ) ? $args{'ngrams'} : 1;
+	if ( ref($ngrams) ne '' || $ngrams !~ /\A\d+\z/ || $ngrams < 1 ) {
+		die('ngrams must be a whole number greater than 0');
+	}
+
 	my $self = {
 		'model' => {
 			'format'         => __PACKAGE__,
 			'version'        => $MODEL_VERSION,
+			'smoothing'      => $smoothing,
+			'alpha'          => $alpha,
+			'ngrams'         => $ngrams,
 			'class_counts'   => {},
 			'token_counts'   => {},
 			'class_totals'   => {},
@@ -160,6 +216,15 @@ string will be broken up.
 The string is split via the token_splitter regex. Empty tokens are
 dropped. If lc_tokens is true, tokens are lowercased. If stop_regex is
 defined, tokens entirely matching it are dropped.
+
+If ngrams is greater than 1, n-grams up to that size are generated
+from adjacent tokens and appended, joined by a space. This happens
+after lowercasing and stop word removal, so stop words do not appear
+inside n-grams.
+
+    my $nb = Algorithm::Classifier::NaiveBayes->new( 'ngrams' => 2 );
+    my @tokens = $nb->tokenize('Free Cruise Inside');
+    # ( 'free', 'cruise', 'inside', 'free cruise', 'cruise inside' )
 
 Will die if the string is undef. As train, untrain, and classify all
 use this, passing undef text to any of those will also die.
@@ -198,6 +263,18 @@ sub tokenize {
 			push( @final_tokens, $token );
 		}
 	} ## end foreach my $token (@tokens)
+
+	# generate n-grams from adjacent tokens if enabled
+	if ( defined( $self->{'model'}{'ngrams'} ) && $self->{'model'}{'ngrams'} > 1 ) {
+		my @grams;
+		for my $n ( 2 .. $self->{'model'}{'ngrams'} ) {
+			for my $i ( 0 .. $#final_tokens - $n + 1 ) {
+				push( @grams, join( ' ', @final_tokens[ $i .. ( $i + $n - 1 ) ] ) );
+			}
+		}
+		push( @final_tokens, @grams );
+	}
+
 	return @final_tokens;
 } ## end sub tokenize
 
@@ -308,6 +385,65 @@ sub untrain {
 	}
 } ## end sub untrain
 
+=head2 prune
+
+Removes all tokens trained fewer than the specified number of times,
+totaled across all classes.
+
+    my $pruned = $nb->prune($min_count);
+
+Real world training data tends to accumulate a long tail of tokens
+only seen once or twice. Those add noise and bloat the saved model,
+so pruning them can be useful after a large amount of training.
+
+    # remove all tokens only trained once
+    my $pruned = $nb->prune(2);
+
+Returns the number of tokens removed. Removed tokens are dropped from
+the vocabulary and the per class token totals are decremented, but
+document counts are untouched, so class priors are unchanged.
+
+Will die if min count is undef or not a whole number greater than 0.
+A min count of 1 is a noop as every trained token has a count of at
+least 1.
+
+=cut
+
+sub prune {
+	my ( $self, $min_count ) = @_;
+
+	if ( !defined($min_count) ) {
+		die('No min count specified');
+	}
+	if ( ref($min_count) ne '' || $min_count !~ /\A\d+\z/ || $min_count < 1 ) {
+		die('min count must be a whole number greater than 0');
+	}
+
+	# total up each token across all classes
+	my %totals;
+	foreach my $class ( keys %{ $self->{'model'}{'token_counts'} } ) {
+		foreach my $token ( keys %{ $self->{'model'}{'token_counts'}{$class} } ) {
+			$totals{$token} += $self->{'model'}{'token_counts'}{$class}{$token};
+		}
+	}
+
+	my $pruned = 0;
+	foreach my $token ( keys %totals ) {
+		if ( $totals{$token} < $min_count ) {
+			$pruned++;
+			foreach my $class ( keys %{ $self->{'model'}{'token_counts'} } ) {
+				if ( defined( $self->{'model'}{'token_counts'}{$class}{$token} ) ) {
+					$self->{'model'}{'class_totals'}{$class} -= $self->{'model'}{'token_counts'}{$class}{$token};
+					delete( $self->{'model'}{'token_counts'}{$class}{$token} );
+				}
+			}
+			delete( $self->{'model'}{'tokens'}{$token} );
+		}
+	} ## end foreach my $token ( keys %totals )
+
+	return $pruned;
+} ## end sub prune
+
 =head2 classes
 
 Returns a sorted list of all currently trained classes.
@@ -359,18 +495,32 @@ Classify the text in question.
 
 In scalar context, returns the name of the class the text most likely
 belongs to. In list context, also returns a hash ref of the score for
-every class.
+every class as well as a hash ref of the probability of every class.
 
-    my ( $class, $scores ) = $nb->classify($text);
+    my ( $class, $scores, $probs ) = $nb->classify($text);
     foreach my $possible ( sort { $scores->{$b} <=> $scores->{$a} } keys %{$scores} ) {
-        print $possible . ': ' . $scores->{$possible} . "\n";
+        print $possible . ': ' . $scores->{$possible} . ', ' . $probs->{$possible} . "\n";
     }
 
 The scores are log probabilities, so they are negative numbers with
 the one closest to zero being the most likely.
 
+The probabilities are the scores normalized to sum to 1, so they may
+be used for things like requiring a minimum confidence.
+
+    my ( $class, $scores, $probs ) = $nb->classify($text);
+    if ( $probs->{$class} < 0.8 ) {
+        $class = 'unsure';
+    }
+
+It is worth noting naive Bayes probabilities tend to be overconfident
+thanks to the assumption tokens are independent of each other, with
+longer texts commonly producing probabilities very close to 1 or 0.
+They are good for ranking and thresholding, but should not be taken
+as calibrated probabilities.
+
 If nothing has been trained yet, undef is returned in scalar context
-and ( undef, {} ) in list context.
+and ( undef, {}, {} ) in list context.
 
 Ties are broken by sorting the tied class names, making the result
 deterministic.
@@ -381,29 +531,158 @@ sub classify {
 	my ( $self, $text ) = @_;
 
 	if ( $self->{'model'}{'total_docs'} < 1 ) {
-		return wantarray ? ( undef, {} ) : undef;
+		return wantarray ? ( undef, {}, {} ) : undef;
 	}
 
 	my @tokens     = $self->tokenize($text);
 	my $token_size = scalar keys %{ $self->{'model'}{'tokens'} };
+	my $alpha      = defined( $self->{'model'}{'alpha'} ) ? $self->{'model'}{'alpha'} : 1;
 
 	my %scores;
 	for my $class ( keys %{ $self->{'model'}{'class_counts'} } ) {
 		my $log_prob = log( $self->{'model'}{'class_counts'}{$class} / $self->{'model'}{'total_docs'} );
 		my $total    = $self->{'model'}{'class_totals'}{$class} || 0;
 
-		if ( ( $total + $token_size ) > 0 ) {
+		if ( ( $total + ( $alpha * $token_size ) ) > 0 ) {
 			for my $token (@tokens) {
 				my $count = $self->{'model'}{'token_counts'}{$class}{$token} || 0;
-				$log_prob += log( ( $count + 1 ) / ( $total + $token_size ) );
+				$log_prob += log( ( $count + $alpha ) / ( $total + ( $alpha * $token_size ) ) );
 			}
 		}
 		$scores{$class} = $log_prob;
 	} ## end for my $class ( keys %{ $self->{'model'}{'class_counts'...}})
 
 	my ($best) = sort { $scores{$b} <=> $scores{$a} || $a cmp $b } keys %scores;
-	return wantarray ? ( $best, \%scores ) : $best;
+
+	if ( !wantarray ) {
+		return $best;
+	}
+
+	# normalize the log scores into probabilities, shifting by the max
+	# so exp does not underflow for large negative log scores
+	my $max = $scores{$best};
+	my %probs;
+	my $prob_sum = 0;
+	for my $class ( keys %scores ) {
+		$probs{$class} = exp( $scores{$class} - $max );
+		$prob_sum += $probs{$class};
+	}
+	for my $class ( keys %probs ) {
+		$probs{$class} = $probs{$class} / $prob_sum;
+	}
+
+	return ( $best, \%scores, \%probs );
 } ## end sub classify
+
+=head2 explain
+
+Classifies the text in question like classify, but returns a hash ref
+breaking down how the result was arrived at.
+
+    my $explanation = $nb->explain($text);
+
+The returned hash ref is as below.
+
+    class - The best matching class, as classify would return.
+
+    scores - Hash ref of the log score of every class, as classify
+        would return.
+
+    probs - Hash ref of the probability of every class, as classify
+        would return.
+
+    priors - Hash ref of the log prior probability of every class,
+        the part of the score that comes from how often the class was
+        trained rather than from the tokens.
+
+    tokens - Hash ref of every token in the tokenized text. Each value
+        is a hash ref with "count", how many times the token appeared
+        in the text, and "contributions", a hash ref of the log
+        probability that token added to each class per appearance.
+
+For any class, the score is the prior plus count * contribution summed
+over every token. A token pushes towards the class it has the highest,
+closest to zero, contribution for. So finding the tokens most
+responsible for a classification can be done like below.
+
+    my $explanation = $nb->explain($text);
+    my ( $first, $second ) =
+        sort { $explanation->{'scores'}{$b} <=> $explanation->{'scores'}{$a} }
+        keys %{ $explanation->{'scores'} };
+    foreach my $token ( keys %{ $explanation->{'tokens'} } ) {
+        my $contribs = $explanation->{'tokens'}{$token}{'contributions'};
+        my $pull = ( $contribs->{$first} - $contribs->{$second} )
+            * $explanation->{'tokens'}{$token}{'count'};
+        print $token . ' pushed towards ' . $first . ' by ' . $pull . "\n";
+    }
+
+Will die if the text is undef. If nothing has been trained yet, undef
+is returned.
+
+=cut
+
+sub explain {
+	my ( $self, $text ) = @_;
+
+	if ( !defined($text) ) {
+		die('No text specified');
+	}
+
+	if ( $self->{'model'}{'total_docs'} < 1 ) {
+		return undef;
+	}
+
+	my @tokens     = $self->tokenize($text);
+	my $token_size = scalar keys %{ $self->{'model'}{'tokens'} };
+	my $alpha      = defined( $self->{'model'}{'alpha'} ) ? $self->{'model'}{'alpha'} : 1;
+
+	my %text_counts;
+	foreach my $token (@tokens) {
+		$text_counts{$token}++;
+	}
+
+	my %priors;
+	my %scores;
+	my %token_info;
+	for my $class ( keys %{ $self->{'model'}{'class_counts'} } ) {
+		$priors{$class} = log( $self->{'model'}{'class_counts'}{$class} / $self->{'model'}{'total_docs'} );
+		my $log_prob = $priors{$class};
+		my $total    = $self->{'model'}{'class_totals'}{$class} || 0;
+		my $denom    = $total + ( $alpha * $token_size );
+
+		if ( $denom > 0 ) {
+			foreach my $token ( keys %text_counts ) {
+				my $count        = $self->{'model'}{'token_counts'}{$class}{$token} || 0;
+				my $contribution = log( ( $count + $alpha ) / $denom );
+				$token_info{$token}{'count'}                   = $text_counts{$token};
+				$token_info{$token}{'contributions'}{$class}   = $contribution;
+				$log_prob += $contribution * $text_counts{$token};
+			}
+		}
+		$scores{$class} = $log_prob;
+	} ## end for my $class ( keys %{ $self->{'model'}{'class_counts'...}})
+
+	my ($best) = sort { $scores{$b} <=> $scores{$a} || $a cmp $b } keys %scores;
+
+	my $max = $scores{$best};
+	my %probs;
+	my $prob_sum = 0;
+	for my $class ( keys %scores ) {
+		$probs{$class} = exp( $scores{$class} - $max );
+		$prob_sum += $probs{$class};
+	}
+	for my $class ( keys %probs ) {
+		$probs{$class} = $probs{$class} / $prob_sum;
+	}
+
+	return {
+		'class'  => $best,
+		'scores' => \%scores,
+		'probs'  => \%probs,
+		'priors' => \%priors,
+		'tokens' => \%token_info,
+	};
+} ## end sub explain
 
 =head2 to_string
 
@@ -496,6 +775,32 @@ sub from_string {
 		}
 	}
 
+	# smoothing and alpha were added in model version 2, so default them
+	# for older models
+	if ( !defined( $model->{'smoothing'} ) ) {
+		$model->{'smoothing'} = 'laplace';
+	}
+	if ( $model->{'smoothing'} ne 'laplace' && $model->{'smoothing'} ne 'lidstone' ) {
+		die('"smoothing" is not "laplace" or "lidstone"');
+	}
+	if ( !defined( $model->{'alpha'} ) ) {
+		$model->{'alpha'} = $model->{'smoothing'} eq 'lidstone' ? 0.5 : 1;
+	}
+	if ( ref( $model->{'alpha'} ) ne '' || $model->{'alpha'} !~ /\A\d*\.?\d+\z/ || $model->{'alpha'} <= 0 ) {
+		die('"alpha" is not a number greater than 0');
+	}
+	if ( $model->{'smoothing'} eq 'laplace' && $model->{'alpha'} != 1 ) {
+		die('"alpha" must be 1 when smoothing is "laplace"');
+	}
+
+	# ngrams was added in model version 3, so default it for older models
+	if ( !defined( $model->{'ngrams'} ) ) {
+		$model->{'ngrams'} = 1;
+	}
+	if ( ref( $model->{'ngrams'} ) ne '' || $model->{'ngrams'} !~ /\A\d+\z/ || $model->{'ngrams'} < 1 ) {
+		die('"ngrams" is not a whole number greater than 0');
+	}
+
 	$self->{'model'} = $model;
 } ## end sub from_string
 
@@ -566,7 +871,10 @@ below.
 
     {
        "format" : "Algorithm::Classifier::NaiveBayes",
-       "version" : 1,
+       "version" : 3,
+       "smoothing" : "laplace",
+       "alpha" : 1,
+       "ngrams" : 1,
        "class_counts" : {
           "ham" : 1,
           "spam" : 1
@@ -610,9 +918,12 @@ The keys are as below.
     format - The name of this module. Used by from_string to make sure
         the JSON is actually a saved model.
 
-    version - The version of the model format. Currently 1. from_string
+    version - The version of the model format. Currently 3. from_string
         will refuse to load a model with a version newer than it
-        understands.
+        understands. Older models missing newer keys are loaded with
+        those keys defaulted. smoothing and alpha, added in version 2,
+        default to laplace and 1. ngrams, added in version 3, defaults
+        to 1.
 
     class_counts - Per class count of how many documents have been
         trained.
@@ -628,8 +939,10 @@ The keys are as below.
 
     total_docs - Total number of documents trained across all classes.
 
-    lc_tokens, token_splitter, stop_regex - The tokenizer settings as
-        documented under new.
+    lc_tokens, token_splitter, stop_regex, ngrams - The tokenizer
+        settings as documented under new.
+
+    smoothing, alpha - The smoothing settings as documented under new.
 
 =head1 AUTHOR
 

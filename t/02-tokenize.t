@@ -35,4 +35,25 @@ my $nb_split = Algorithm::Classifier::NaiveBayes->new( 'token_splitter' => ',' )
 @tokens = $nb_split->tokenize('a,b,,c');
 is_deeply( \@tokens, [ 'a', 'b', 'c' ], 'custom token_splitter works' );
 
+# n-grams
+my $nb_bi = Algorithm::Classifier::NaiveBayes->new( 'ngrams' => 2 );
+@tokens = $nb_bi->tokenize('Free Cruise Inside');
+is_deeply(
+	\@tokens,
+	[ 'free', 'cruise', 'inside', 'free cruise', 'cruise inside' ],
+	'ngrams=2 appends adjacent pairs'
+);
+
+@tokens = $nb_bi->tokenize('solo');
+is_deeply( \@tokens, ['solo'], 'ngrams=2 with a single token produces no pairs' );
+
+my $nb_tri = Algorithm::Classifier::NaiveBayes->new( 'ngrams' => 3 );
+@tokens = $nb_tri->tokenize('a b c');
+is_deeply( \@tokens, [ 'a', 'b', 'c', 'a b', 'b c', 'a b c' ], 'ngrams=3 appends pairs and triplets' );
+
+# stop words are removed before n-grams are generated
+my $nb_bi_stop = Algorithm::Classifier::NaiveBayes->new( 'ngrams' => 2, 'stop_regex' => 'a' );
+@tokens = $nb_bi_stop->tokenize('win a cruise');
+is_deeply( \@tokens, [ 'win', 'cruise', 'win cruise' ], 'n-grams are generated after stop word removal' );
+
 done_testing;
