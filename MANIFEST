@@ -4,6 +4,16 @@ examples/classify.pl
 examples/tokenizer_options.pl
 examples/train.pl
 lib/Algorithm/Classifier/NaiveBayes.pm
+lib/Algorithm/Classifier/NaiveBayes/App.pm
+lib/Algorithm/Classifier/NaiveBayes/App/Command.pm
+lib/Algorithm/Classifier/NaiveBayes/App/Command/classify.pm
+lib/Algorithm/Classifier/NaiveBayes/App/Command/explain.pm
+lib/Algorithm/Classifier/NaiveBayes/App/Command/info.pm
+lib/Algorithm/Classifier/NaiveBayes/App/Command/prune.pm
+lib/Algorithm/Classifier/NaiveBayes/App/Command/tokens.pm
+lib/Algorithm/Classifier/NaiveBayes/App/Command/train.pm
+lib/Algorithm/Classifier/NaiveBayes/App/Command/untrain.pm
+src_bin/nb_tool
 Makefile.PL
 MANIFEST			This list of files
 README.md
@@ -18,6 +28,7 @@ t/07-save-load.t
 t/08-listing.t
 t/09-prune.t
 t/10-explain.t
+t/11-app.t
 t/manifest.t
 t/pod-coverage.t
 t/pod.t

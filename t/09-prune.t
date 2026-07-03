@@ -21,7 +21,7 @@ eval { $nb->prune('x'); };
 like( $@, qr/greater than 0/, 'prune with a non-numeric min count dies' );
 
 # a min count of 1 is a noop
-is( $nb->prune(1), 0, 'prune of 1 removes nothing' );
+is( $nb->prune(1),                             0, 'prune of 1 removes nothing' );
 is( scalar keys %{ $nb->{'model'}{'tokens'} }, 5, 'vocabulary unchanged after prune of 1' );
 
 # counts... cheap=2, pills=3 across classes, buy=1, meeting=2, tomorrow=1

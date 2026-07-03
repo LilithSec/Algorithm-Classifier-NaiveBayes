@@ -50,6 +50,24 @@ For full documentation see the POD for the module. Runnable examples,
 including small command line training and classification scripts, can
 be found under [examples/](examples/).
 
+A command line tool, `nb_tool`, is also included for working with
+saved models without writing any code.
+
+```shell
+nb_tool train -m model.json -c spam buy cheap pills now
+nb_tool train -m model.json -c ham meeting at noon tomorrow
+
+nb_tool classify -m model.json -p cheap pills
+nb_tool explain -m model.json you have won a free cruise
+
+nb_tool info -m model.json
+nb_tool tokens -m model.json spam
+nb_tool prune -m model.json 2
+nb_tool untrain -m model.json -c spam buy cheap pills now
+```
+
+See `nb_tool commands` and `nb_tool help <command>` for the details.
+
 ## Installation
 
 The non-core modules below are required.

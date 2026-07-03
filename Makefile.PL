@@ -10,6 +10,7 @@ my %WriteMakefileArgs = (
 	ABSTRACT_FROM      => 'lib/Algorithm/Classifier/NaiveBayes.pm',
 	LICENSE            => 'lgpl_2_1',
 	MIN_PERL_VERSION   => '5.006',
+	EXE_FILES          => ['src_bin/nb_tool'],
 	CONFIGURE_REQUIRES => {
 		'ExtUtils::MakeMaker' => '0',
 	},
@@ -19,6 +20,7 @@ my %WriteMakefileArgs = (
 	PREREQ_PM => {
 		'JSON::PP'    => '0',
 		'File::Slurp' => '0',
+		'App::Cmd'    => '0',
 	},
 	dist  => { COMPRESS => 'gzip -9f', SUFFIX => 'gz', },
 	clean => { FILES    => 'Algorithm-Classifier-NaiveBayes-*' },

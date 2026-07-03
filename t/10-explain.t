@@ -48,8 +48,7 @@ ok(
 
 # unseen tokens still get a smoothed contribution
 my $unseen = $nb->explain('zebra');
-ok( defined( $unseen->{'tokens'}{'zebra'}{'contributions'}{'spam'} ),
-	'unseen tokens have a smoothed contribution' );
+ok( defined( $unseen->{'tokens'}{'zebra'}{'contributions'}{'spam'} ), 'unseen tokens have a smoothed contribution' );
 
 # the score is the prior plus the sum of count * contribution
 foreach my $check_class ( 'spam', 'ham' ) {
@@ -58,13 +57,14 @@ foreach my $check_class ( 'spam', 'ham' ) {
 		$rebuilt += $explanation->{'tokens'}{$token}{'contributions'}{$check_class}
 			* $explanation->{'tokens'}{$token}{'count'};
 	}
-	ok( abs( $rebuilt - $explanation->{'scores'}{$check_class} ) < 1e-9,
-		'prior plus token contributions rebuilds the ' . $check_class . ' score' );
-}
+	ok(
+		abs( $rebuilt - $explanation->{'scores'}{$check_class} ) < 1e-9,
+		'prior plus token contributions rebuilds the ' . $check_class . ' score'
+	);
+} ## end foreach my $check_class ( 'spam', 'ham' )
 
 # priors reflect training frequency
-ok( $explanation->{'priors'}{'ham'} > $explanation->{'priors'}{'spam'},
-	'the more trained class has the higher prior' );
+ok( $explanation->{'priors'}{'ham'} > $explanation->{'priors'}{'spam'}, 'the more trained class has the higher prior' );
 
 # uniform priors show up in the explanation
 my $uniform = Algorithm::Classifier::NaiveBayes->new( 'priors' => 'uniform' );
@@ -72,9 +72,7 @@ $uniform->train( 'spam', 'buy cheap pills' );
 $uniform->train( 'ham',  'meeting at noon' );
 $uniform->train( 'ham',  'lunch meeting' );
 my $uniform_explanation = $uniform->explain('cheap meeting');
-ok(
-	abs( $uniform_explanation->{'priors'}{'spam'} - $uniform_explanation->{'priors'}{'ham'} ) < 1e-9,
-	'uniform priors are equal in explain'
-);
+ok( abs( $uniform_explanation->{'priors'}{'spam'} - $uniform_explanation->{'priors'}{'ham'} ) < 1e-9,
+	'uniform priors are equal in explain' );
 
 done_testing;

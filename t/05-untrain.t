@@ -18,15 +18,15 @@ is( $un->{'model'}{'class_counts'}{'ham'},            1, 'untrain decrements cla
 is( $un->{'model'}{'class_totals'}{'ham'},            4, 'untrain decrements class_totals' );
 is( $un->{'model'}{'token_counts'}{'ham'}{'meeting'}, 1, 'untrain decrements token_counts' );
 ok( !exists $un->{'model'}{'token_counts'}{'ham'}{'lunch'}, 'zeroed tokens are removed from the class' );
-ok( !exists $un->{'model'}{'tokens'}{'lunch'}, 'tokens in no class are removed from the vocabulary' );
-ok( exists $un->{'model'}{'tokens'}{'meeting'}, 'tokens still in a class stay in the vocabulary' );
+ok( !exists $un->{'model'}{'tokens'}{'lunch'},              'tokens in no class are removed from the vocabulary' );
+ok( exists $un->{'model'}{'tokens'}{'meeting'},             'tokens still in a class stay in the vocabulary' );
 
 # untraining the last document of a class removes the class
 $un->untrain( 'ham', 'meeting at noon tomorrow' );
 ok( !exists $un->{'model'}{'class_counts'}{'ham'}, 'empty classes are removed from class_counts' );
 ok( !exists $un->{'model'}{'token_counts'}{'ham'}, 'empty classes are removed from token_counts' );
 ok( !exists $un->{'model'}{'class_totals'}{'ham'}, 'empty classes are removed from class_totals' );
-is( $un->{'model'}{'total_docs'}, 1, 'total_docs correct after class removal' );
+is( $un->{'model'}{'total_docs'},  1,      'total_docs correct after class removal' );
 is( $un->classify('meeting noon'), 'spam', 'classify no longer sees the removed class' );
 
 # untraining an unknown class is a noop

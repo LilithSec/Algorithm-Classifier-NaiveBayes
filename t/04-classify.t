@@ -15,19 +15,19 @@ is( $nb->classify('buy cheap pills'),       'spam', 'classifies spam' );
 is( $nb->classify('meeting noon tomorrow'), 'ham',  'classifies ham' );
 
 my ( $best, $scores, $probs ) = $nb->classify('cheap pills');
-is( $best, 'spam', 'list context returns best class' );
+is( $best,        'spam', 'list context returns best class' );
 is( ref($scores), 'HASH', 'list context returns scores hashref' );
 is_deeply( [ sort keys %{$scores} ], [ 'ham', 'spam' ], 'scores has an entry per class' );
 ok( $scores->{'spam'} > $scores->{'ham'}, 'winning class has the highest score' );
-ok( $scores->{'spam'} < 0, 'scores are log probabilities' );
+ok( $scores->{'spam'} < 0,                'scores are log probabilities' );
 
 # probabilities
 is( ref($probs), 'HASH', 'list context returns probs hashref' );
 is_deeply( [ sort keys %{$probs} ], [ 'ham', 'spam' ], 'probs has an entry per class' );
-ok( $probs->{'spam'} > $probs->{'ham'}, 'winning class has the highest probability' );
+ok( $probs->{'spam'} > $probs->{'ham'},                   'winning class has the highest probability' );
 ok( abs( $probs->{'spam'} + $probs->{'ham'} - 1 ) < 1e-9, 'probabilities sum to 1' );
-ok( $probs->{'spam'} > 0 && $probs->{'spam'} <= 1, 'probabilities are between 0 and 1' );
-ok( $probs->{'ham'} > 0, 'losing class probability is greater than 0' );
+ok( $probs->{'spam'} > 0 && $probs->{'spam'} <= 1,        'probabilities are between 0 and 1' );
+ok( $probs->{'ham'} > 0,                                  'losing class probability is greater than 0' );
 
 # unseen tokens are smoothed rather than dying
 my $unseen = $nb->classify('zebra quantum');
@@ -87,7 +87,7 @@ $uniform_priors->train( 'a', 'xx' );
 $uniform_priors->train( 'a', 'yy' );
 $uniform_priors->train( 'b', 'xx' );
 my ( $upbest, $upscores ) = $uniform_priors->classify('');
-ok( abs( $upscores->{'a'} - log( 1 / 2 ) ) < 1e-9, 'uniform priors are log(1/classes)' );
+ok( abs( $upscores->{'a'} - log( 1 / 2 ) ) < 1e-9,     'uniform priors are log(1/classes)' );
 ok( abs( $upscores->{'a'} - $upscores->{'b'} ) < 1e-9, 'uniform priors are equal for every class' );
 
 done_testing;

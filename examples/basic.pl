@@ -36,4 +36,4 @@ foreach my $text (@to_classify) {
 		my $towards = $pull{$token} > 0 ? $first : $second;
 		print '    ' . $token . ' pushed towards ' . $towards . ' by ' . sprintf( '%.3f', abs( $pull{$token} ) ) . "\n";
 	}
-}
+} ## end foreach my $text (@to_classify)

@@ -19,9 +19,9 @@ like( $@, qr/No class specified/, 'class_tokens with no class dies' );
 $nb->train( 'spam', 'buy cheap pills now cheap' );
 $nb->train( 'ham',  'meeting at noon tomorrow' );
 
-is_deeply( [ $nb->classes ], [ 'ham', 'spam' ], 'classes returns trained classes sorted' );
-is_deeply( [ $nb->class_tokens('spam') ], [ 'buy', 'cheap', 'now', 'pills' ], 'class_tokens returns sorted tokens' );
-is_deeply( [ $nb->class_tokens('ham') ], [ 'at', 'meeting', 'noon', 'tomorrow' ], 'class_tokens per class' );
+is_deeply( [ $nb->classes ],              [ 'ham', 'spam' ], 'classes returns trained classes sorted' );
+is_deeply( [ $nb->class_tokens('spam') ], [ 'buy', 'cheap',   'now',  'pills' ], 'class_tokens returns sorted tokens' );
+is_deeply( [ $nb->class_tokens('ham') ],  [ 'at',  'meeting', 'noon', 'tomorrow' ], 'class_tokens per class' );
 
 # untraining a class removes it from the listings
 $nb->untrain( 'ham', 'meeting at noon tomorrow' );

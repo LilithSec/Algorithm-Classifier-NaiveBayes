@@ -154,12 +154,12 @@ sub new {
 	my ( $pkg, %args ) = @_;
 
 	my %known_args = (
-		'lc_tokens'      => 1,
-		'token_splitter' => 1,
-		'stop_regex'     => 1,
-		'smoothing'      => 1,
-		'alpha'          => 1,
-		'ngrams'         => 1,
+		'lc_tokens'       => 1,
+		'token_splitter'  => 1,
+		'stop_regex'      => 1,
+		'smoothing'       => 1,
+		'alpha'           => 1,
+		'ngrams'          => 1,
 		'token_weighting' => 1,
 		'priors'          => 1,
 	);
@@ -223,21 +223,21 @@ sub new {
 
 	my $self = {
 		'model' => {
-			'format'         => __PACKAGE__,
-			'version'        => $MODEL_VERSION,
-			'smoothing'      => $smoothing,
-			'alpha'          => $alpha,
-			'ngrams'         => $ngrams,
+			'format'          => __PACKAGE__,
+			'version'         => $MODEL_VERSION,
+			'smoothing'       => $smoothing,
+			'alpha'           => $alpha,
+			'ngrams'          => $ngrams,
 			'token_weighting' => $token_weighting,
 			'priors'          => $priors,
-			'class_counts'   => {},
-			'token_counts'   => {},
-			'class_totals'   => {},
-			'tokens'         => {},
-			'total_docs'     => 0,
-			'lc_tokens'      => defined( $args{'lc_tokens'} )      ? $args{'lc_tokens'}      : 1,
-			'token_splitter' => defined( $args{'token_splitter'} ) ? $args{'token_splitter'} : '\s+',
-			'stop_regex'     => $args{'stop_regex'},
+			'class_counts'    => {},
+			'token_counts'    => {},
+			'class_totals'    => {},
+			'tokens'          => {},
+			'total_docs'      => 0,
+			'lc_tokens'       => defined( $args{'lc_tokens'} )      ? $args{'lc_tokens'}      : 1,
+			'token_splitter'  => defined( $args{'token_splitter'} ) ? $args{'token_splitter'} : '\s+',
+			'stop_regex'      => $args{'stop_regex'},
 		},
 	};
 	bless $self, $pkg;
@@ -503,7 +503,7 @@ sub prune {
 				}
 			}
 			delete( $self->{'model'}{'tokens'}{$token} );
-		}
+		} ## end if ( $totals{$token} < $min_count )
 	} ## end foreach my $token ( keys %totals )
 
 	return $pruned;
@@ -719,8 +719,8 @@ sub explain {
 			foreach my $token ( keys %text_counts ) {
 				my $count        = $self->{'model'}{'token_counts'}{$class}{$token} || 0;
 				my $contribution = log( ( $count + $alpha ) / $denom );
-				$token_info{$token}{'count'}                   = $text_counts{$token};
-				$token_info{$token}{'contributions'}{$class}   = $contribution;
+				$token_info{$token}{'count'} = $text_counts{$token};
+				$token_info{$token}{'contributions'}{$class} = $contribution;
 				$log_prob += $contribution * $text_counts{$token};
 			}
 		}

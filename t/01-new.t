@@ -8,10 +8,10 @@ use Algorithm::Classifier::NaiveBayes;
 
 my $nb = Algorithm::Classifier::NaiveBayes->new;
 isa_ok( $nb, 'Algorithm::Classifier::NaiveBayes', 'new' );
-is( $nb->{'model'}{'lc_tokens'},      1,     'lc_tokens defaults to 1' );
-is( $nb->{'model'}{'token_splitter'}, '\s+', 'token_splitter defaults to \s+' );
-is( $nb->{'model'}{'stop_regex'},     undef, 'stop_regex defaults to undef' );
-is( $nb->{'model'}{'total_docs'},     0,     'total_docs starts at 0' );
+is( $nb->{'model'}{'lc_tokens'},      1,         'lc_tokens defaults to 1' );
+is( $nb->{'model'}{'token_splitter'}, '\s+',     'token_splitter defaults to \s+' );
+is( $nb->{'model'}{'stop_regex'},     undef,     'stop_regex defaults to undef' );
+is( $nb->{'model'}{'total_docs'},     0,         'total_docs starts at 0' );
 is( $nb->{'model'}{'smoothing'},      'laplace', 'smoothing defaults to laplace' );
 is( $nb->{'model'}{'alpha'},          1,         'alpha defaults to 1 for laplace' );
 

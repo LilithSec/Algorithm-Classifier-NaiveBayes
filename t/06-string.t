@@ -12,14 +12,14 @@ $nb->train( 'ham',  'meeting at noon tomorrow' );
 $nb->train( 'ham',  'lunch meeting tomorrow' );
 
 my $json = $nb->to_string;
-like( $json, qr/"class_counts"/, 'to_string returns JSON' );
+like( $json, qr/"class_counts"/,                                     'to_string returns JSON' );
 like( $json, qr/"format"\s*:\s*"Algorithm::Classifier::NaiveBayes"/, 'to_string includes the format' );
-like( $json, qr/"version"\s*:\s*1/,                 'to_string includes the model version' );
-like( $json, qr/"smoothing"\s*:\s*"laplace"/,       'to_string includes the smoothing' );
-like( $json, qr/"alpha"\s*:\s*1/,                   'to_string includes the alpha' );
-like( $json, qr/"ngrams"\s*:\s*1/,                  'to_string includes the ngrams' );
-like( $json, qr/"token_weighting"\s*:\s*"count"/,   'to_string includes the token_weighting' );
-like( $json, qr/"priors"\s*:\s*"trained"/,          'to_string includes the priors' );
+like( $json, qr/"version"\s*:\s*1/,                                  'to_string includes the model version' );
+like( $json, qr/"smoothing"\s*:\s*"laplace"/,                        'to_string includes the smoothing' );
+like( $json, qr/"alpha"\s*:\s*1/,                                    'to_string includes the alpha' );
+like( $json, qr/"ngrams"\s*:\s*1/,                                   'to_string includes the ngrams' );
+like( $json, qr/"token_weighting"\s*:\s*"count"/,                    'to_string includes the token_weighting' );
+like( $json, qr/"priors"\s*:\s*"trained"/,                           'to_string includes the priors' );
 
 my $from = Algorithm::Classifier::NaiveBayes->new;
 $from->from_string($json);

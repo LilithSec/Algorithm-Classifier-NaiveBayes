@@ -38,11 +38,8 @@ is_deeply( \@tokens, [ 'a', 'b', 'c' ], 'custom token_splitter works' );
 # n-grams
 my $nb_bi = Algorithm::Classifier::NaiveBayes->new( 'ngrams' => 2 );
 @tokens = $nb_bi->tokenize('Free Cruise Inside');
-is_deeply(
-	\@tokens,
-	[ 'free', 'cruise', 'inside', 'free cruise', 'cruise inside' ],
-	'ngrams=2 appends adjacent pairs'
-);
+is_deeply( \@tokens, [ 'free', 'cruise', 'inside', 'free cruise', 'cruise inside' ],
+	'ngrams=2 appends adjacent pairs' );
 
 @tokens = $nb_bi->tokenize('solo');
 is_deeply( \@tokens, ['solo'], 'ngrams=2 with a single token produces no pairs' );
