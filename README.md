@@ -63,6 +63,7 @@ nb_tool explain -m model.json you have won a free cruise
 nb_tool info -m model.json
 nb_tool tokens -m model.json spam
 nb_tool prune -m model.json 2
+nb_tool tweak -m model.json --smoothing lidstone --alpha 0.1
 nb_tool untrain -m model.json -c spam buy cheap pills now
 ```
 

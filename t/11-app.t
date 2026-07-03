@@ -120,6 +120,28 @@ $result = test_app( $app => [ 'prune', '-m', $model, 'x' ] );
 like( $result->error, qr/not a whole number/, 'prune with a bad min count errors' );
 
 ##
+## tweak
+##
+
+$result = test_app( $app => [ 'tweak', '-m', $model, '--smoothing', 'lidstone', '--alpha', '0.1' ] );
+is( $result->error, undef, 'tweak runs' );
+like( $result->stdout, qr/smoothing: lidstone/, 'tweak reports the smoothing' );
+like( $result->stdout, qr/alpha: 0.1/,          'tweak reports the alpha' );
+
+$result = test_app( $app => [ 'info', '-m', $model ] );
+like( $result->stdout, qr/smoothing: lidstone/, 'tweak changes are saved to the model' );
+
+$result = test_app( $app => [ 'tweak', '-m', $model, '--priors', 'uniform' ] );
+is( $result->error, undef, 'tweak priors runs' );
+like( $result->stdout, qr/alpha: 0.1/, 'tweaking priors leaves alpha alone' );
+
+$result = test_app( $app => [ 'tweak', '-m', $model ] );
+like( $result->error, qr/Nothing to change/, 'tweak with nothing to change errors' );
+
+$result = test_app( $app => [ 'tweak', '-m', $model, '--smoothing', 'derp' ] );
+like( $result->error, qr/smoothing must be either/, 'tweak with a bad smoothing errors' );
+
+##
 ## untrain
 ##
 

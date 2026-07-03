@@ -749,6 +749,95 @@ sub explain {
 	};
 } ## end sub explain
 
+=head2 tweak
+
+Changes scoring settings on a existing model. Takes the args below,
+all optional, but at least one must be specified.
+
+    smoothing - The smoothing to use... laplace or lidstone.
+
+    alpha - The alpha to use for lidstone smoothing. Must be a number
+        greater than 0. May only be specified when the resulting
+        smoothing is lidstone.
+
+    priors - How class priors are computed... trained or uniform.
+
+    # switch to lidstone smoothing with a alpha of 0.1
+    $nb->tweak( 'smoothing' => 'lidstone', 'alpha' => 0.1 );
+
+    # switch to uniform priors
+    $nb->tweak( 'priors' => 'uniform' );
+
+These are safe to change after training as they only affect scoring,
+not the trained counts. Settings that shape the trained data, such as
+ngrams, token_weighting, and the tokenizer settings, may not be
+changed here as that would make the model inconsistent with what was
+trained... for those, create a new object and retrain.
+
+Only args specified with a defined value are changed. Args passed
+with a undef value are ignored, so it is safe to pass through
+possibly unset values.
+
+Switching smoothing to laplace sets alpha to 1, as laplace is add-one.
+Switching to lidstone without specifying alpha keeps the current
+alpha.
+
+Will die if passed a unknown arg, no args with defined values, or a
+insane value. If it dies, the model is left unchanged.
+
+=cut
+
+sub tweak {
+	my ( $self, %args ) = @_;
+
+	my %known_args = ( 'smoothing' => 1, 'alpha' => 1, 'priors' => 1 );
+	foreach my $arg ( keys %args ) {
+		if ( !defined( $known_args{$arg} ) ) {
+			die( '"' . $arg . '" is not a known arg' );
+		}
+	}
+	if ( !grep { defined( $args{$_} ) } keys %args ) {
+		die('No args specified');
+	}
+
+	# validate against what the settings would become
+	my $smoothing = defined( $args{'smoothing'} ) ? $args{'smoothing'} : $self->{'model'}{'smoothing'};
+	if ( !defined($smoothing) ) {
+		$smoothing = 'laplace';
+	}
+	if ( $smoothing ne 'laplace' && $smoothing ne 'lidstone' ) {
+		die( 'smoothing must be either "laplace" or "lidstone" and not "' . $smoothing . '"' );
+	}
+
+	if ( defined( $args{'alpha'} ) ) {
+		if ( $smoothing eq 'laplace' ) {
+			die('alpha may only be specified when the resulting smoothing is lidstone');
+		}
+		if ( ref( $args{'alpha'} ) ne '' || $args{'alpha'} !~ /\A\d*\.?\d+\z/ || $args{'alpha'} <= 0 ) {
+			die('alpha must be a number greater than 0');
+		}
+	}
+
+	if ( defined( $args{'priors'} ) && $args{'priors'} ne 'trained' && $args{'priors'} ne 'uniform' ) {
+		die( 'priors must be either "trained" or "uniform" and not "' . $args{'priors'} . '"' );
+	}
+
+	# only change what was specified with a defined value
+	if ( defined( $args{'smoothing'} ) ) {
+		$self->{'model'}{'smoothing'} = $args{'smoothing'};
+		if ( $args{'smoothing'} eq 'laplace' ) {
+			# laplace is add-one, so alpha is always 1
+			$self->{'model'}{'alpha'} = 1;
+		}
+	}
+	if ( defined( $args{'alpha'} ) ) {
+		$self->{'model'}{'alpha'} = $args{'alpha'};
+	}
+	if ( defined( $args{'priors'} ) ) {
+		$self->{'model'}{'priors'} = $args{'priors'};
+	}
+} ## end sub tweak
+
 =head2 to_string
 
 Returns the model as a JSON string. See the section MODEL FORMAT for
